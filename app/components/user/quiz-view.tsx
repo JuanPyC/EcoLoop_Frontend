@@ -1,94 +1,94 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, CheckCircle2, XCircle, Trophy } from "lucide-react"
+import { ArrowLeft, Trophy } from "lucide-react"
 import Link from "next/link"
 import { Profile, Quiz, QuizQuestion } from "@/app/types"
+import type { QuizAnswerInput } from "@/app/services/quizService"
+
+interface QuizSubmissionResult {
+  points_earned: number
+  total_points: number
+  completion: {
+    score: number
+  }
+}
 
 interface QuizViewProps {
   profile: Profile
   quiz: Quiz
   questions: QuizQuestion[]
-  onSubmit: (score: number, pointsEarned: number) => Promise<void>
+  onSubmit: (answers: QuizAnswerInput[]) => Promise<QuizSubmissionResult>
 }
 
-export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) {
+export function QuizView({ profile: _profile, quiz, questions, onSubmit }: QuizViewProps) {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [selectedAnswer, setSelectedAnswer] = useState<string>("")
-  const [answers, setAnswers] = useState<{ questionId: string; answer: string; correct: boolean }[]>([])
+  const [answers, setAnswers] = useState<QuizAnswerInput[]>([])
   const [isCompleted, setIsCompleted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [resultSummary, setResultSummary] = useState<QuizSubmissionResult | null>(null)
 
   const currentQuestion = questions[currentQuestionIndex]
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100
 
-  // Shuffle answers
-  const shuffledAnswers = currentQuestion
-    ? [
-        currentQuestion.correct_answer,
-        currentQuestion.wrong_answer_1,
-        currentQuestion.wrong_answer_2,
-        currentQuestion.wrong_answer_3,
-      ].sort(() => Math.random() - 0.5)
-    : []
+  const shuffledAnswers = useMemo(() => {
+    if (!currentQuestion) return []
+    const options = [
+      currentQuestion.wrong_answer_1,
+      currentQuestion.wrong_answer_2,
+      currentQuestion.wrong_answer_3,
+    ].filter(Boolean)
+    if (currentQuestion.correct_answer) {
+      options.push(currentQuestion.correct_answer)
+    }
+    return [...options].sort(() => Math.random() - 0.5)
+  }, [currentQuestion])
 
   const handleNext = () => {
-    if (!selectedAnswer) return
+    if (!selectedAnswer || isSubmitting) return
 
-    const isCorrect = selectedAnswer === currentQuestion.correct_answer
-
-    setAnswers([
+    const updatedAnswers: QuizAnswerInput[] = [
       ...answers,
       {
-        questionId: currentQuestion.id,
-        answer: selectedAnswer,
-        correct: isCorrect,
-      },
-    ])
-
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1)
-      setSelectedAnswer("")
-    } else {
-      handleComplete(isCorrect)
-    }
-  }
-
-  const handleComplete = async (lastAnswerCorrect: boolean) => {
-    setIsSubmitting(true)
-
-    const allAnswers = [
-      ...answers,
-      {
-        questionId: currentQuestion.id,
-        answer: selectedAnswer,
-        correct: lastAnswerCorrect,
+        question_id: currentQuestion.id,
+        selected_answer: selectedAnswer,
       },
     ]
 
-    const score = allAnswers.filter((a) => a.correct).length
-    const pointsEarned = Math.round((score / questions.length) * quiz.points_reward)
+    if (currentQuestionIndex < questions.length - 1) {
+      setAnswers(updatedAnswers)
+      setCurrentQuestionIndex(currentQuestionIndex + 1)
+      setSelectedAnswer("")
+    } else {
+      handleComplete(updatedAnswers)
+    }
+  }
+
+  const handleComplete = async (allAnswers: QuizAnswerInput[]) => {
+    setIsSubmitting(true)
+    setErrorMessage(null)
 
     try {
-      await onSubmit(score, pointsEarned)
+      const result = await onSubmit(allAnswers)
+      setResultSummary(result)
+      setAnswers(allAnswers)
       setIsCompleted(true)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error completing quiz:", error)
-      alert("Error al completar el quiz. Por favor, intenta de nuevo.")
+      setErrorMessage(error?.message || "Error al completar el quiz. Por favor, intenta de nuevo.")
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  if (isCompleted) {
-    const score = answers.filter((a) => a.correct).length
-    const pointsEarned = Math.round((score / questions.length) * quiz.points_reward)
-
+  if (isCompleted && resultSummary) {
     return (
       <div className="min-h-svh bg-gradient-to-br from-primary/5 via-background to-accent/5 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -103,12 +103,12 @@ export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) 
             <div className="rounded-lg bg-muted p-4 text-center">
               <p className="text-sm text-muted-foreground">Tu puntuación</p>
               <p className="text-3xl font-bold text-primary">
-                {score} / {questions.length}
+                {resultSummary.completion.score} / {questions.length}
               </p>
             </div>
             <div className="rounded-lg bg-primary/10 p-4 text-center">
               <p className="text-sm text-primary font-medium">Puntos ganados</p>
-              <p className="text-2xl font-bold text-primary">+{pointsEarned} EcoPoints</p>
+              <p className="text-2xl font-bold text-primary">+{resultSummary.points_earned} EcoPoints</p>
             </div>
             <Button asChild className="w-full">
               <Link href="/user/news">Volver a Noticias</Link>
@@ -121,7 +121,6 @@ export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) 
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-primary/5 via-background to-accent/5">
-      {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-16 items-center gap-4 px-4">
           <Button variant="ghost" size="icon" asChild>
@@ -140,7 +139,6 @@ export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) 
 
       <div className="container px-4 py-6">
         <div className="mx-auto max-w-2xl space-y-6">
-          {/* Progress */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Progreso</span>
@@ -149,7 +147,6 @@ export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) 
             <Progress value={progress} />
           </div>
 
-          {/* Question Card */}
           <Card>
             <CardHeader>
               <CardTitle className="text-xl text-balance">{currentQuestion?.question}</CardTitle>
@@ -158,7 +155,7 @@ export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) 
               <RadioGroup value={selectedAnswer} onValueChange={setSelectedAnswer}>
                 {shuffledAnswers.map((answer, index) => (
                   <div
-                    key={index}
+                    key={`${answer}-${index}`}
                     className="flex items-center space-x-3 rounded-lg border p-4 cursor-pointer hover:bg-accent/50 transition-colors"
                   >
                     <RadioGroupItem value={answer} id={`answer-${index}`} />
@@ -169,6 +166,12 @@ export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) 
                 ))}
               </RadioGroup>
 
+              {errorMessage && (
+                <p className="text-sm text-destructive" role="alert">
+                  {errorMessage}
+                </p>
+              )}
+
               <Button onClick={handleNext} disabled={!selectedAnswer || isSubmitting} className="w-full">
                 {isSubmitting
                   ? "Enviando..."
@@ -178,33 +181,6 @@ export function QuizView({ profile, quiz, questions, onSubmit }: QuizViewProps) 
               </Button>
             </CardContent>
           </Card>
-
-          {/* Answer History */}
-          {answers.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Respuestas Anteriores</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-2">
-                  {answers.map((answer, index) => (
-                    <div
-                      key={index}
-                      className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                        answer.correct ? "bg-green-500/10" : "bg-red-500/10"
-                      }`}
-                    >
-                      {answer.correct ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-red-600" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
     </div>

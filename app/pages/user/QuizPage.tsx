@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/app/hooks/useAuth";
-import { quizService } from "@/app/services/quizService";
+import { quizService, type QuizAnswerInput } from "@/app/services/quizService";
 import { QuizView } from "@/components/user/quiz-view";
 import { Quiz, QuizQuestion, Profile } from "@/app/types";
 import { Loader2 } from "lucide-react";
@@ -30,9 +30,10 @@ export function QuizPage() {
     const loadQuizData = async () => {
       if (!id) return;
       try {
-        // Check if already completed
-        const completions = await quizService.getCompletions(user.id);
-        const alreadyCompleted = completions?.some((c: any) => c.quiz_id === id);
+        const completions = await quizService.getCompletions();
+        const alreadyCompleted = Array.isArray(completions)
+          ? completions.some((c: any) => c.quiz_id === id)
+          : false;
         if (alreadyCompleted) {
           router.push("/user/news");
           return;
@@ -44,8 +45,8 @@ export function QuizPage() {
           return;
         }
 
-        setQuiz(quizData as any);
-        setQuestions((quizData.quiz_questions || []) as any);
+        setQuiz(quizData as Quiz);
+        setQuestions((quizData.quiz_questions || []) as QuizQuestion[]);
       } catch (err) {
         console.error("Error loading quiz:", err);
         router.push("/user/news");
@@ -57,9 +58,11 @@ export function QuizPage() {
     loadQuizData();
   }, [user, authLoading, id, router]);
 
-  const handleSubmit = async (score: number, pointsEarned: number): Promise<void> => {
-    if (!user || !quiz) return;
-    await quizService.submitQuizCompletion(user.id, quiz.id, score, pointsEarned);
+  const handleSubmit = async (answers: QuizAnswerInput[]) => {
+    if (!quiz) {
+      throw new Error("Quiz no cargado");
+    }
+    return quizService.submitQuizCompletion(quiz.id, answers);
   };
 
   if (authLoading || loading || !profile || !quiz) {

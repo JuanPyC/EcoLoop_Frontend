@@ -1,56 +1,58 @@
-import { createClient } from "@/lib/supabase/client";
+import { apiClient } from "@/lib/api-client";
+
+export interface CreateProductInput {
+  name: string;
+  description?: string | null;
+  points_cost: number;
+  stock: number;
+  category: string;
+  image_url?: string | null;
+  is_available?: boolean;
+}
+
+export interface UpdateProductInput {
+  name?: string;
+  description?: string | null;
+  points_cost?: number;
+  stock?: number;
+  category?: string;
+  image_url?: string | null;
+  is_available?: boolean;
+}
 
 export const productService = {
   async getProducts(availableOnly = false) {
-    const supabase = createClient();
-    let query = supabase.from("products").select("*").order("name");
-
-    if (availableOnly) {
-      query = query.eq("is_available", true);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
+    const path = availableOnly ? "/api/v1/products?available=true" : "/api/v1/products";
+    return apiClient.get(path);
   },
 
   async getProductById(id: string) {
-    const supabase = createClient();
-    const { data, error } = await supabase.from("products").select("*").eq("id", id).single();
-    if (error) throw error;
-    return data;
+    return apiClient.get(`/api/v1/products/${id}`);
   },
 
-  async redeemProduct(userId: string, productId: string, pointsSpent: number, quantity = 1) {
-    const supabase = createClient();
-    
-    // Create redemption record
-    const { data, error } = await supabase.from("redemptions").insert({
-      user_id: userId,
-      product_id: productId,
-      points_spent: pointsSpent,
-      quantity,
-      status: "pending",
-    });
+  async createProduct(data: CreateProductInput) {
+    return apiClient.post("/api/v1/products", data);
+  },
 
-    if (error) throw error;
-    return data;
+  async updateProduct(id: string, data: UpdateProductInput) {
+    return apiClient.put(`/api/v1/products/${id}`, data);
+  },
+
+  async deleteProduct(id: string) {
+    return apiClient.delete(`/api/v1/products/${id}`);
+  },
+
+  async redeemProduct(_userId: string, productId: string, _pointsSpent: number, quantity = 1) {
+    return apiClient.post("/api/v1/redemptions", {
+      product_id: productId,
+      quantity,
+    });
   },
 
   async getRedemptions(userId?: string) {
-    const supabase = createClient();
-    let query = supabase
-      .from("redemptions")
-      .select("*, profiles (*), products (*)")
-      .order("created_at", { ascending: false });
-
-    if (userId) {
-      query = query.eq("user_id", userId);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
+    const path = userId ? `/api/v1/redemptions?userId=${userId}` : "/api/v1/redemptions";
+    return apiClient.get(path);
   },
 };
+
 export default productService;

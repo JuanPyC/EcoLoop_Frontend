@@ -1,32 +1,19 @@
-import { createClient } from "@/lib/supabase/client";
+import { apiClient } from "@/lib/api-client";
+
+export interface ScanQrInput {
+  qr_code: string;
+  weight: number;
+}
 
 export const transactionService = {
   async getTransactions(userId?: string) {
-    const supabase = createClient();
-    let query = supabase
-      .from("transactions")
-      .select("*, profiles (full_name, email), waste_bins (*, waste_stations (*))")
-      .order("created_at", { ascending: false });
-
-    if (userId) {
-      query = query.eq("user_id", userId);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
+    const path = userId ? `/api/v1/transactions?user_id=${userId}` : "/api/v1/transactions";
+    return apiClient.get(path);
   },
 
-  async createTransaction(transaction: {
-    user_id: string;
-    bin_id: string;
-    points_earned: number;
-    waste_type: string;
-  }) {
-    const supabase = createClient();
-    const { data, error } = await supabase.from("transactions").insert(transaction);
-    if (error) throw error;
-    return data;
+  async scanQr(input: ScanQrInput) {
+    return apiClient.post("/api/v1/transactions/scan", input);
   },
 };
+
 export default transactionService;

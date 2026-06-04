@@ -18,9 +18,9 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Leaf, ArrowLeft, UserPlus, Pencil, Trash2, Search } from "lucide-react"
+import { Leaf, ArrowLeft, UserPlus, Pencil, Search } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { profileService } from "@/app/services/profileService"
 import { useToast } from "@/components/ui/use-toast"
 
 interface Profile {
@@ -35,12 +35,18 @@ interface Profile {
 interface UsersManagementProps {
   profile: Profile
   users: Profile[]
+  onRefresh?: () => void | Promise<void>
 }
 
-export function UsersManagement({ profile, users: initialUsers }: UsersManagementProps) {
+type UserRole = "user" | "worker" | "admin"
+
+export function UsersManagement({
+  profile,
+  users: initialUsers,
+  onRefresh,
+}: UsersManagementProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [users, setUsers] = useState(initialUsers)
   const [searchTerm, setSearchTerm] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -51,10 +57,10 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
     email: "",
     password: "",
     full_name: "",
-    role: "user",
+    role: "user" as UserRole,
   })
 
-  const filteredUsers = users.filter(
+  const filteredUsers = initialUsers.filter(
     (user) =>
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -65,47 +71,25 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      await profileService.createUser({
         email: formData.email,
         password: formData.password,
-        options: {
-          data: {
-            full_name: formData.full_name,
-            role: formData.role,
-          },
-        },
+        full_name: formData.full_name,
+        role: formData.role,
       })
 
-      if (authError) throw authError
+      toast({
+        title: "Usuario creado",
+        description: `${formData.full_name || formData.email} ha sido creado exitosamente.`,
+      })
 
-      if (authData.user) {
-        // Update profile with role
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({
-            full_name: formData.full_name,
-            role: formData.role,
-          })
-          .eq("id", authData.user.id)
-
-        if (profileError) throw profileError
-
-        toast({
-          title: "Usuario creado",
-          description: `${formData.full_name} ha sido creado exitosamente.`,
-        })
-
-        setIsCreateOpen(false)
-        setFormData({ email: "", password: "", full_name: "", role: "user" })
-        router.refresh()
-      }
+      setIsCreateOpen(false)
+      setFormData({ email: "", password: "", full_name: "", role: "user" })
+      await onRefresh?.()
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error?.message || "No se pudo crear el usuario.",
         variant: "destructive",
       })
     } finally {
@@ -120,17 +104,10 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({
-          full_name: formData.full_name,
-          role: formData.role,
-        })
-        .eq("id", selectedUser.id)
-
-      if (error) throw error
+      await profileService.updateProfile(selectedUser.id, {
+        full_name: formData.full_name,
+        role: formData.role,
+      })
 
       toast({
         title: "Usuario actualizado",
@@ -139,40 +116,15 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
 
       setIsEditOpen(false)
       setSelectedUser(null)
-      router.refresh()
+      await onRefresh?.()
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error?.message || "No se pudo actualizar el usuario.",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm("¿Estás seguro de eliminar este usuario?")) return
-
-    try {
-      const supabase = createClient()
-
-      const { error } = await supabase.from("profiles").delete().eq("id", userId)
-
-      if (error) throw error
-
-      toast({
-        title: "Usuario eliminado",
-        description: "El usuario ha sido eliminado exitosamente.",
-      })
-
-      router.refresh()
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      })
     }
   }
 
@@ -182,7 +134,7 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
       email: user.email,
       password: "",
       full_name: user.full_name || "",
-      role: user.role,
+      role: (user.role as UserRole) || "user",
     })
     setIsEditOpen(true)
   }
@@ -225,7 +177,7 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <CardTitle>Usuarios del Sistema</CardTitle>
-                <CardDescription>Total: {users.length} usuarios</CardDescription>
+                <CardDescription>Total: {initialUsers.length} usuarios</CardDescription>
               </div>
               <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                 <DialogTrigger asChild>
@@ -274,7 +226,7 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
                       <Label htmlFor="role">Rol</Label>
                       <Select
                         value={formData.role}
-                        onValueChange={(value) => setFormData({ ...formData, role: value })}
+                        onValueChange={(value) => setFormData({ ...formData, role: value as UserRole })}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -325,16 +277,14 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
                       <TableCell>{user.eco_points} pts</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(user)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDeleteUser(user.id)}
+                            onClick={() => openEditDialog(user)}
                             disabled={user.id === profile.id}
+                            title={user.id === profile.id ? "No puedes editar tu propio perfil aquí" : "Editar"}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Pencil className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
@@ -369,7 +319,10 @@ export function UsersManagement({ profile, users: initialUsers }: UsersManagemen
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit_role">Rol</Label>
-              <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+              <Select
+                value={formData.role}
+                onValueChange={(value) => setFormData({ ...formData, role: value as UserRole })}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

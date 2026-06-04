@@ -1,43 +1,20 @@
-import { createClient } from "@/lib/supabase/client";
+import { apiClient } from "@/lib/api-client";
 
 export const binService = {
   async getBinByQr(qrCode: string) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("waste_bins")
-      .select("*, waste_stations (name, location)")
-      .eq("qr_code", qrCode)
-      .single();
-    if (error) throw error;
-    return data;
+    return apiClient.get(`/api/v1/bins/qr?qr_code=${encodeURIComponent(qrCode)}`);
   },
 
-  async updateBinCapacity(id: string, capacity: number, weight: number) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("waste_bins")
-      .update({
-        capacity_percentage: capacity,
-        current_weight: weight,
-        needs_attention: capacity >= 80,
-      })
-      .eq("id", id);
-    if (error) throw error;
-    return data;
+  async updateBinCapacity(id: string, capacity: number, currentWeight: number) {
+    return apiClient.put(`/api/v1/bins/${id}/capacity`, {
+      capacity_percentage: capacity,
+      current_weight: currentWeight,
+    });
   },
 
   async emptyBin(id: string) {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("waste_bins")
-      .update({
-        capacity_percentage: 0,
-        current_weight: 0,
-        needs_attention: false,
-      })
-      .eq("id", id);
-    if (error) throw error;
-    return data;
+    return apiClient.post(`/api/v1/bins/${id}/empty`);
   },
 };
+
 export default binService;

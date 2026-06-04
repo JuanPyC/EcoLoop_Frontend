@@ -56,6 +56,9 @@ export function RedeemStorePage() {
       setProfile(updatedUser as any);
     }
 
+    const prodList = await productService.getProducts(true);
+    setProducts(prodList as any);
+
     const updatedRedemptions = await productService.getRedemptions(user.id);
     setRedemptions(updatedRedemptions as any);
   };

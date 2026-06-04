@@ -1,24 +1,40 @@
-import { createClient } from "@/lib/supabase/client";
+import { apiClient } from "@/lib/api-client";
+
+export interface CreateNewsInput {
+  title: string;
+  content: string;
+  image_url?: string | null;
+  published?: boolean;
+}
+
+export interface UpdateNewsInput {
+  title?: string;
+  content?: string;
+  image_url?: string | null;
+  published?: boolean;
+}
 
 export const newsService = {
   async getNews(publishedOnly = false) {
-    const supabase = createClient();
-    let query = supabase.from("news_articles").select("*, profiles (full_name)").order("created_at", { ascending: false });
-
-    if (publishedOnly) {
-      query = query.eq("published", true);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
+    const path = publishedOnly ? "/api/v1/news?published=true" : "/api/v1/news";
+    return apiClient.get(path);
   },
 
   async getNewsById(id: string) {
-    const supabase = createClient();
-    const { data, error } = await supabase.from("news_articles").select("*, profiles (full_name)").eq("id", id).single();
-    if (error) throw error;
-    return data;
+    return apiClient.get(`/api/v1/news/${id}`);
+  },
+
+  async createNews(data: CreateNewsInput) {
+    return apiClient.post("/api/v1/news", data);
+  },
+
+  async updateNews(id: string, data: UpdateNewsInput) {
+    return apiClient.put(`/api/v1/news/${id}`, data);
+  },
+
+  async deleteNews(id: string) {
+    return apiClient.delete(`/api/v1/news/${id}`);
   },
 };
+
 export default newsService;

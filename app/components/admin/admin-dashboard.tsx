@@ -29,7 +29,10 @@ interface Profile {
 interface Stats {
   totalUsers: number
   totalTransactions: number
+  totalPointsEarned?: number
   totalPointsRedeemed: number
+  totalRedemptions?: number
+  binsNeedingAttention?: number
 }
 
 interface Transaction {
@@ -41,11 +44,8 @@ interface Transaction {
 interface WasteBin {
   waste_type: string
   capacity_percentage: number
-  current_weight: number
   needs_attention: boolean
-  waste_stations: {
-    name: string
-  }
+  station?: { name?: string } | null
 }
 
 interface Redemption {
@@ -53,13 +53,8 @@ interface Redemption {
   points_spent: number
   status: string
   created_at: string
-  profiles: {
-    full_name: string | null
-    email: string
-  }
-  products: {
-    name: string
-  }
+  user?: { full_name?: string | null; email?: string } | null
+  product?: { name?: string } | null
 }
 
 interface AdminDashboardProps {
@@ -77,8 +72,14 @@ const COLORS = {
   non_recyclable: "#6b7280",
 }
 
-export function AdminDashboard({ profile, stats, transactions, wasteBins, recentRedemptions, onSignOut }: AdminDashboardProps) {
-  // Calculate waste type distribution
+export function AdminDashboard({
+  profile,
+  stats,
+  transactions,
+  wasteBins,
+  recentRedemptions,
+  onSignOut,
+}: AdminDashboardProps) {
   const wasteTypeData = [
     {
       name: "Reciclable",
@@ -97,34 +98,22 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
     },
   ]
 
-  // Calculate average capacity by waste type
+  const averageCapacity = (type: string) => {
+    const filtered = wasteBins.filter((b) => b.waste_type === type)
+    if (filtered.length === 0) return 0
+    return filtered.reduce((sum, b) => sum + (b.capacity_percentage || 0), 0) / filtered.length
+  }
+
   const capacityByType = [
-    {
-      type: "Reciclable",
-      capacidad:
-        wasteBins.filter((b) => b.waste_type === "recyclable").reduce((sum, b) => sum + b.capacity_percentage, 0) /
-          wasteBins.filter((b) => b.waste_type === "recyclable").length || 0,
-    },
-    {
-      type: "Orgánico",
-      capacidad:
-        wasteBins.filter((b) => b.waste_type === "organic").reduce((sum, b) => sum + b.capacity_percentage, 0) /
-          wasteBins.filter((b) => b.waste_type === "organic").length || 0,
-    },
-    {
-      type: "No Reciclable",
-      capacidad:
-        wasteBins.filter((b) => b.waste_type === "non_recyclable").reduce((sum, b) => sum + b.capacity_percentage, 0) /
-          wasteBins.filter((b) => b.waste_type === "non_recyclable").length || 0,
-    },
+    { type: "Reciclable", capacidad: averageCapacity("recyclable") },
+    { type: "Orgánico", capacidad: averageCapacity("organic") },
+    { type: "No Reciclable", capacidad: averageCapacity("non_recyclable") },
   ]
 
-  // Find bins that fill fastest
   const binsNeedingAttention = wasteBins.filter((b) => b.needs_attention)
 
   return (
     <div className="min-h-svh bg-gradient-to-br from-primary/5 via-background to-accent/5">
-      {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-2">
@@ -151,7 +140,6 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
           </TabsList>
 
           <TabsContent value="overview" className="mt-6 space-y-6">
-            {/* Stats Cards */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -187,11 +175,10 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
               </Card>
             </div>
 
-            {/* Recent Redemptions */}
             <Card>
               <CardHeader>
                 <CardTitle>Canjes Recientes</CardTitle>
-                <CardDescription>Últimas 10 transacciones de la tienda</CardDescription>
+                <CardDescription>Últimas {recentRedemptions.length} transacciones de la tienda</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -200,9 +187,9 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
                     return (
                       <div key={redemption.id} className="flex items-center justify-between rounded-lg border p-3">
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{redemption.products.name}</p>
+                          <p className="font-medium text-sm truncate">{redemption.product?.name || "Producto"}</p>
                           <p className="text-xs text-muted-foreground truncate">
-                            {redemption.profiles.full_name || redemption.profiles.email}
+                            {redemption.user?.full_name || redemption.user?.email || "Usuario"}
                           </p>
                         </div>
                         <div className="text-right ml-4">
@@ -214,13 +201,17 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
                       </div>
                     )
                   })}
+                  {recentRedemptions.length === 0 && (
+                    <p className="text-center text-sm text-muted-foreground py-4">
+                      Aún no hay canjes recientes
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="analytics" className="mt-6 space-y-6">
-            {/* Waste Type Distribution */}
             <Card>
               <CardHeader>
                 <CardTitle>Distribución de Residuos</CardTitle>
@@ -234,7 +225,7 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
                       outerRadius={80}
                       fill="#8884d8"
                       dataKey="value"
@@ -249,7 +240,6 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
               </CardContent>
             </Card>
 
-            {/* Bin Capacity by Type */}
             <Card>
               <CardHeader>
                 <CardTitle>Capacidad Promedio por Tipo</CardTitle>
@@ -269,7 +259,6 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
               </CardContent>
             </Card>
 
-            {/* Bins Needing Attention */}
             <Card>
               <CardHeader>
                 <CardTitle>Canastas que Necesitan Atención</CardTitle>
@@ -280,7 +269,7 @@ export function AdminDashboard({ profile, stats, transactions, wasteBins, recent
                   {binsNeedingAttention.map((bin, index) => (
                     <div key={index} className="flex items-center justify-between rounded-lg border p-3">
                       <div>
-                        <p className="font-medium text-sm">{bin.waste_stations.name}</p>
+                        <p className="font-medium text-sm">{bin.station?.name || "Estación sin nombre"}</p>
                         <p className="text-xs text-muted-foreground">
                           {bin.waste_type === "recyclable"
                             ? "Reciclable"

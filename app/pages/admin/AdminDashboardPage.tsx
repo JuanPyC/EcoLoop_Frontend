@@ -3,18 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/app/hooks/useAuth";
-import { adminService } from "@/app/services/adminService";
+import { adminService, type AdminAnalyticsResponse } from "@/app/services/adminService";
 import { AdminDashboard } from "@/components/admin/admin-dashboard";
 import { Loader2 } from "lucide-react";
 
 export function AdminDashboardPage() {
   const { user, loading: authLoading, logout } = useAuth();
-  const [data, setData] = useState<{
-    stats: { totalUsers: number; totalTransactions: number; totalPointsRedeemed: number };
-    transactions: any[];
-    wasteBins: any[];
-    recentRedemptions: any[];
-  } | null>(null);
+  const [data, setData] = useState<AdminAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -68,9 +63,9 @@ export function AdminDashboardPage() {
     <AdminDashboard
       profile={user}
       stats={data.stats}
-      transactions={data.transactions}
-      wasteBins={data.wasteBins}
-      recentRedemptions={data.recentRedemptions}
+      transactions={data.recentTransactions as any[]}
+      wasteBins={data.wasteBins as any[]}
+      recentRedemptions={data.recentRedemptions as any[]}
       onSignOut={handleSignOut}
     />
   );

@@ -6,3 +6,4 @@ export * from "./productService";
 export * from "./newsService";
 export * from "./quizService";
 export * from "./adminService";
+export * from "./profileService";

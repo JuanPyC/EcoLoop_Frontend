@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Leaf, ArrowLeft, Plus, Pencil, Trash2, Search, MapPin, QrCode, Download } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { stationService } from "@/app/services/stationService"
 import { useToast } from "@/components/ui/use-toast"
 import QRCode from "qrcode"
 
@@ -27,9 +27,7 @@ interface WasteBin {
   waste_type: string
   qr_code: string
   capacity_percentage: number
-  current_weight: number
   needs_attention: boolean
-  last_emptied?: string
 }
 
 interface WasteStation {
@@ -50,12 +48,16 @@ interface Profile {
 interface StationsManagementProps {
   profile: Profile
   stations: WasteStation[]
+  onRefresh?: () => void | Promise<void>
 }
 
-export function StationsManagement({ profile, stations: initialStations }: StationsManagementProps) {
+export function StationsManagement({
+  profile: _profile,
+  stations: initialStations,
+  onRefresh,
+}: StationsManagementProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [stations, setStations] = useState(initialStations)
   const [searchTerm, setSearchTerm] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -63,9 +65,9 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
   const [isLoading, setIsLoading] = useState(false)
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
   const [qrCodeUrls, setQrCodeUrls] = useState<{ type: string; url: string; code: string }[]>([])
-  const [formData, setFormData] = useState({ name: "", location: "" }) // Declare formData here
+  const [formData, setFormData] = useState({ name: "", location: "" })
 
-  const filteredStations = stations.filter(
+  const filteredStations = initialStations.filter(
     (station) =>
       station.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       station.location.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -76,61 +78,23 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-
-      const { data: newStation, error: stationError } = await supabase
-        .from("waste_stations")
-        .insert([
-          {
-            name: formData.name,
-            location: formData.location,
-          },
-        ])
-        .select()
-        .single()
-
-      if (stationError) throw stationError
-
-      const bins = [
-        {
-          station_id: newStation.id,
-          waste_type: "recyclable",
-          capacity_percentage: 0,
-          current_weight: 0,
-          qr_code: `ECOLOOP-${newStation.id}-RECYCLABLE-${Date.now()}`,
-        },
-        {
-          station_id: newStation.id,
-          waste_type: "organic",
-          capacity_percentage: 0,
-          current_weight: 0,
-          qr_code: `ECOLOOP-${newStation.id}-ORGANIC-${Date.now() + 1}`,
-        },
-        {
-          station_id: newStation.id,
-          waste_type: "non_recyclable",
-          capacity_percentage: 0,
-          current_weight: 0,
-          qr_code: `ECOLOOP-${newStation.id}-NONRECYCLABLE-${Date.now() + 2}`,
-        },
-      ]
-
-      const { error: binsError } = await supabase.from("waste_bins").insert(bins)
-
-      if (binsError) throw binsError
+      await stationService.createStation({
+        name: formData.name,
+        location: formData.location,
+      })
 
       toast({
         title: "Estación creada",
-        description: `${formData.name} ha sido creada con 3 canastas.`,
+        description: `${formData.name} ha sido creada con sus 3 canastas.`,
       })
 
       setIsCreateOpen(false)
-      setFormData({ name: "", location: "" }) // Use setFormData here
-      router.refresh()
+      setFormData({ name: "", location: "" })
+      await onRefresh?.()
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error?.message || "No se pudo crear la estación.",
         variant: "destructive",
       })
     } finally {
@@ -145,17 +109,10 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase
-        .from("waste_stations")
-        .update({
-          name: formData.name,
-          location: formData.location,
-        })
-        .eq("id", selectedStation.id)
-
-      if (error) throw error
+      await stationService.updateStation(selectedStation.id, {
+        name: formData.name,
+        location: formData.location,
+      })
 
       toast({
         title: "Estación actualizada",
@@ -164,11 +121,11 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
 
       setIsEditOpen(false)
       setSelectedStation(null)
-      router.refresh()
+      await onRefresh?.()
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error?.message || "No se pudo actualizar la estación.",
         variant: "destructive",
       })
     } finally {
@@ -181,26 +138,16 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
 
     setIsLoading(true)
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase.from("waste_stations").delete().eq("id", stationId)
-
-      if (error) {
-        console.error("[v0] Delete error:", error)
-        throw error
-      }
-
+      await stationService.deleteStation(stationId)
       toast({
         title: "Estación eliminada",
         description: "La estación y sus canastas han sido eliminadas exitosamente.",
       })
-
-      setStations(stations.filter((s) => s.id !== stationId))
+      await onRefresh?.()
     } catch (error: any) {
-      console.error("[v0] Error deleting station:", error)
       toast({
         title: "Error al eliminar",
-        description: error.message || "No se pudo eliminar la estación. Verifica los permisos.",
+        description: error?.message || "No se pudo eliminar la estación.",
         variant: "destructive",
       })
     } finally {
@@ -240,7 +187,7 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
       setSelectedStation(station)
       setIsQrDialogOpen(true)
     } catch (error) {
-      console.error("[v0] Error generating QR codes:", error)
+      console.error("[StationsManagement] Error generating QR codes:", error)
       toast({
         title: "Error",
         description: "No se pudieron generar los códigos QR",
@@ -303,7 +250,7 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <CardTitle>Estaciones de Residuos</CardTitle>
-                <CardDescription>Total: {stations.length} estaciones</CardDescription>
+                <CardDescription>Total: {initialStations.length} estaciones</CardDescription>
               </div>
               <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                 <DialogTrigger asChild>
@@ -393,7 +340,7 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
                   </CardHeader>
                   <CardContent>
                     <div className="grid gap-3 sm:grid-cols-3">
-                      {station.waste_bins.map((bin) => (
+                      {(station.waste_bins || []).map((bin) => (
                         <div key={bin.id} className="rounded-lg border p-3">
                           <div className="flex items-center gap-2 mb-2">
                             <div className={`h-3 w-3 rounded-full ${getWasteTypeColor(bin.waste_type)}`} />
@@ -406,15 +353,6 @@ export function StationsManagement({ profile, stations: initialStations }: Stati
                                 {bin.capacity_percentage}%
                               </Badge>
                             </div>
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-muted-foreground">Peso</span>
-                              <span className="font-medium">{bin.current_weight || 0} kg / 120 kg</span>
-                            </div>
-                            {bin.last_emptied && (
-                              <p className="text-xs text-muted-foreground">
-                                Vaciado: {new Date(bin.last_emptied).toLocaleDateString("es-ES")}
-                              </p>
-                            )}
                           </div>
                         </div>
                       ))}

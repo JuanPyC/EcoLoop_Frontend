@@ -3,21 +3,17 @@ import { binService } from "../services/binService";
 import { transactionService } from "../services/transactionService";
 import { Html5Qrcode } from "html5-qrcode";
 
-const POINTS_BY_TYPE = {
-  recyclable: 10,
-  organic: 8,
-  non_recyclable: 5,
-};
-
-const POINTS_PER_KG = {
-  recyclable: 2,
-  organic: 1.5,
-  non_recyclable: 1,
-};
-
 const MAX_CAPACITY_KG = 120;
 
-export function useQrScanner(userId: string, onScanSuccess: () => void) {
+interface ScannedBin {
+  id: string;
+  waste_type: "recyclable" | "organic" | "non_recyclable" | string;
+  capacity_percentage: number;
+  qr_code: string;
+  station?: { name?: string } | null;
+}
+
+export function useQrScanner(_userId: string, onScanSuccess: () => void) {
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<{
     success: boolean;
@@ -27,7 +23,7 @@ export function useQrScanner(userId: string, onScanSuccess: () => void) {
   const [isProcessing, setIsProcessing] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [scannedBin, setScannedBin] = useState<any>(null);
+  const [scannedBin, setScannedBin] = useState<ScannedBin | null>(null);
   const [wasteAmount, setWasteAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [shouldStartScanner, setShouldStartScanner] = useState(false);
@@ -37,8 +33,6 @@ export function useQrScanner(userId: string, onScanSuccess: () => void) {
 
     const initScanner = async () => {
       try {
-        console.log("[useQrScanner] Initializing scanner...");
-        
         const element = document.getElementById("qr-reader");
         if (!element) {
           console.error("[useQrScanner] QR reader element not found");
@@ -121,7 +115,6 @@ export function useQrScanner(userId: string, onScanSuccess: () => void) {
 
   const handleScan = async (qrCode: string) => {
     try {
-      console.log("[useQrScanner] Scanned QR code:", qrCode);
       const bin = await binService.getBinByQr(qrCode);
       if (!bin) {
         setScanResult({
@@ -147,7 +140,7 @@ export function useQrScanner(userId: string, onScanSuccess: () => void) {
 
     try {
       const amount = Number.parseFloat(wasteAmount);
-      if (isNaN(amount) || amount <= 0) {
+      if (Number.isNaN(amount) || amount <= 0) {
         setScanResult({
           success: false,
           message: "Por favor, ingresa una cantidad válida mayor a 0.",
@@ -156,33 +149,10 @@ export function useQrScanner(userId: string, onScanSuccess: () => void) {
         return;
       }
 
-      const currentWeight = scannedBin.current_weight || 0;
-      const newWeight = Math.min(currentWeight + amount, MAX_CAPACITY_KG);
-      const newCapacity = Math.round((newWeight / MAX_CAPACITY_KG) * 100);
-
-      if (currentWeight >= MAX_CAPACITY_KG) {
-        setScanResult({
-          success: false,
-          message: "Esta canasta está llena. Por favor, usa otra canasta o notifica al personal.",
-        });
-        setIsSubmitting(false);
-        return;
-      }
-
-      const basePoints = POINTS_BY_TYPE[scannedBin.waste_type as keyof typeof POINTS_BY_TYPE];
-      const pointsPerKg = POINTS_PER_KG[scannedBin.waste_type as keyof typeof POINTS_PER_KG];
-      const totalPoints = Math.round(basePoints + amount * pointsPerKg);
-
-      // Create transaction
-      await transactionService.createTransaction({
-        user_id: userId,
-        bin_id: scannedBin.id,
-        points_earned: totalPoints,
-        waste_type: scannedBin.waste_type,
+      const result = await transactionService.scanQr({
+        qr_code: scannedBin.qr_code,
+        weight: amount,
       });
-
-      // Update bin capacity
-      await binService.updateBinCapacity(scannedBin.id, newCapacity, newWeight);
 
       const wasteTypeLabel =
         scannedBin.waste_type === "recyclable"
@@ -193,18 +163,20 @@ export function useQrScanner(userId: string, onScanSuccess: () => void) {
 
       setScanResult({
         success: true,
-        message: `¡Excelente! Has depositado ${amount}kg de residuos ${wasteTypeLabel} en ${scannedBin.waste_stations?.name || "Estación"} y ganado ${totalPoints} EcoPoints. Capacidad actual: ${newCapacity}%`,
-        points: totalPoints,
+        message: `¡Excelente! Depositaste ${amount}kg de residuos ${wasteTypeLabel} en ${
+          scannedBin.station?.name || "la estación"
+        } y ganaste ${result.points_earned} EcoPoints. Capacidad actual: ${result.capacity_percentage}%`,
+        points: result.points_earned,
       });
 
       setScannedBin(null);
       setWasteAmount("");
       onScanSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error("[useQrScanner] Error submitting deposit:", error);
       setScanResult({
         success: false,
-        message: "Error al registrar el depósito. Por favor, intenta de nuevo.",
+        message: error?.message || "Error al registrar el depósito. Por favor, intenta de nuevo.",
       });
     } finally {
       setIsSubmitting(false);

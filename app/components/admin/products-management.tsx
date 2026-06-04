@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Leaf, ArrowLeft, Plus, Pencil, Trash2, Search, Package } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { productService } from "@/app/services/productService"
 import { useToast } from "@/components/ui/use-toast"
 
 interface Product {
@@ -46,12 +46,16 @@ interface Profile {
 interface ProductsManagementProps {
   profile: Profile
   products: Product[]
+  onRefresh?: () => void | Promise<void>
 }
 
-export function ProductsManagement({ profile, products: initialProducts }: ProductsManagementProps) {
+export function ProductsManagement({
+  profile: _profile,
+  products: initialProducts,
+  onRefresh,
+}: ProductsManagementProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const [products, setProducts] = useState(initialProducts)
   const [searchTerm, setSearchTerm] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -68,28 +72,24 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
     is_available: true,
   })
 
-  const filteredProducts = products.filter((product) => product.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredProducts = initialProducts.filter((product) =>
+    product.name.toLowerCase().includes(searchTerm.toLowerCase())
+  )
 
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase.from("products").insert([
-        {
-          name: formData.name,
-          description: formData.description || null,
-          points_cost: formData.points_cost,
-          stock: formData.stock,
-          category: formData.category,
-          image_url: formData.image_url || null,
-          is_available: formData.is_available,
-        },
-      ])
-
-      if (error) throw error
+      await productService.createProduct({
+        name: formData.name,
+        description: formData.description || null,
+        points_cost: formData.points_cost,
+        stock: formData.stock,
+        category: formData.category,
+        image_url: formData.image_url || null,
+        is_available: formData.is_available,
+      })
 
       toast({
         title: "Producto creado",
@@ -106,11 +106,11 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
         image_url: "",
         is_available: true,
       })
-      router.refresh()
+      await onRefresh?.()
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error?.message || "No se pudo crear el producto.",
         variant: "destructive",
       })
     } finally {
@@ -125,22 +125,15 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase
-        .from("products")
-        .update({
-          name: formData.name,
-          description: formData.description || null,
-          points_cost: formData.points_cost,
-          stock: formData.stock,
-          category: formData.category,
-          image_url: formData.image_url || null,
-          is_available: formData.is_available,
-        })
-        .eq("id", selectedProduct.id)
-
-      if (error) throw error
+      await productService.updateProduct(selectedProduct.id, {
+        name: formData.name,
+        description: formData.description || null,
+        points_cost: formData.points_cost,
+        stock: formData.stock,
+        category: formData.category,
+        image_url: formData.image_url || null,
+        is_available: formData.is_available,
+      })
 
       toast({
         title: "Producto actualizado",
@@ -149,11 +142,11 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
 
       setIsEditOpen(false)
       setSelectedProduct(null)
-      router.refresh()
+      await onRefresh?.()
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error?.message || "No se pudo actualizar el producto.",
         variant: "destructive",
       })
     } finally {
@@ -165,22 +158,16 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
     if (!confirm("¿Estás seguro de eliminar este producto?")) return
 
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase.from("products").delete().eq("id", productId)
-
-      if (error) throw error
-
+      await productService.deleteProduct(productId)
       toast({
         title: "Producto eliminado",
         description: "El producto ha sido eliminado de la tienda.",
       })
-
-      router.refresh()
+      await onRefresh?.()
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error?.message || "No se pudo eliminar el producto.",
         variant: "destructive",
       })
     }
@@ -237,7 +224,7 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <CardTitle>Productos de la Tienda</CardTitle>
-                <CardDescription>Total: {products.length} productos</CardDescription>
+                <CardDescription>Total: {initialProducts.length} productos</CardDescription>
               </div>
               <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                 <DialogTrigger asChild>
@@ -278,7 +265,7 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
                           type="number"
                           min="0"
                           value={formData.points_cost}
-                          onChange={(e) => setFormData({ ...formData, points_cost: Number.parseInt(e.target.value) })}
+                          onChange={(e) => setFormData({ ...formData, points_cost: Number.parseInt(e.target.value) || 0 })}
                           required
                         />
                       </div>
@@ -290,7 +277,7 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
                           min="0"
                           value={formData.stock}
                           onChange={(e) =>
-                            setFormData({ ...formData, stock: Number.parseInt(e.target.value) })
+                            setFormData({ ...formData, stock: Number.parseInt(e.target.value) || 0 })
                           }
                           required
                         />
@@ -382,9 +369,7 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
                       </TableCell>
                       <TableCell>{product.points_cost} pts</TableCell>
                       <TableCell>
-                        <Badge variant={product.stock > 0 ? "default" : "destructive"}>
-                          {product.stock}
-                        </Badge>
+                        <Badge variant={product.stock > 0 ? "default" : "destructive"}>{product.stock}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
@@ -438,7 +423,7 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
                   type="number"
                   min="0"
                   value={formData.points_cost}
-                  onChange={(e) => setFormData({ ...formData, points_cost: Number.parseInt(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, points_cost: Number.parseInt(e.target.value) || 0 })}
                   required
                 />
               </div>
@@ -449,7 +434,7 @@ export function ProductsManagement({ profile, products: initialProducts }: Produ
                   type="number"
                   min="0"
                   value={formData.stock}
-                  onChange={(e) => setFormData({ ...formData, stock: Number.parseInt(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, stock: Number.parseInt(e.target.value) || 0 })}
                   required
                 />
               </div>
